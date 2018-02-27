@@ -1,6 +1,6 @@
 # AMT CIRA Simulator
 
-This simple NodeJS application simulates multiple AMT CIRA connection to an MPS. The CIRA client will mimic APF protocol client end point up to keep alive. Each client can be controlled to connect and disconnect.
+This simple NodeJS application simulates multiple AMT CIRA connections to an MPS. The CIRA client will mimic APF protocol client end point up to the ability to send keep alive packets. Each client can be controlled to connect and disconnect independently.
 
 Note: it does not simulate AMT WSMAN or REDIR payload yet.
 
