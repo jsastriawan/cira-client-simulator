@@ -20,7 +20,13 @@ for (var i=0; i< count; i++) {
     var args = JSON.parse(JSON.stringify(args_template));
     args.clientName +='-'+i;
     args.uuid = args.uuid.substring(0, args.uuid.length - tail_len);
-    args.uuid += i.toString(16).toLocaleLowerCase();    
+    var t = i.toString(16).toLocaleLowerCase();
+    var pt = '';
+    for (var j=t.length; j<tail_len; j++) {
+        pt+='0';
+    }
+    pt+=t;
+    args.uuid += pt;
     obj.ciraclients[i] = require('./ciraclient.js').CreateCiraClient(obj, args);
 }
 
