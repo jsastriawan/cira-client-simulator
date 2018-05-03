@@ -229,6 +229,7 @@ module.exports.CreateCiraClient = function (parent, args) {
                         SendGlobalRequestPfwd(socket,obj.args.clientName,pfwd_ports[obj.pfwd_idx++]);
                     } else {
                         // no more port forward, now setup timer to send keep alive
+                        console.log("CIRA: Start keep alive for every "+obj.args.keepalive+" ms.");
                         obj.timer = setInterval( function () {
                             SendKeepAliveRequest(obj.forwardClient);
                         }, obj.args.keepalive);// 
