@@ -336,7 +336,7 @@ module.exports.CreateCiraClient = function (parent, args) {
                 SendChannelWindowAdjust(socket, rcpt_chan, 0);            
             } else {
                 // other than SOL, it is not supported yet, will refine later
-                obj.cirastate = CIRASTATE.FAILED;
+                SendChannelClose(socket, rcpt_chan);                    
             }
         } else if (obj.redirstate== REDIR_TYPE.REDIR_SOL) {
             // SOL state machine
@@ -378,11 +378,11 @@ module.exports.CreateCiraClient = function (parent, args) {
                     break;
                 }
                 default: {
-                    obj.cirastate = CIRASTATE.FAILED;
+                    SendChannelClose(socket, rcpt_chan);                    
                 }
             }            
         } else {
-            obj.cirastate = CIRASTATE.FAILED;
+            SendChannelClose(socket, rcpt_chan);                    
         }
     }
 
