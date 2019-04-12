@@ -26,6 +26,22 @@ module.exports.CreateCiraClient = function (parent, args) {
         FAILED: -1
     }
     obj.cirastate = CIRASTATE.INITIAL;
+
+    // REDIR state
+    var REDIR_TYPE = {
+        REDIR_UNKNOWN: 0,
+        REDIR_SOL: 1,
+        REDIR_KVM: 2,
+        REDIR_IDER: 3        
+    }
+
+    // redirection start command
+    obj.RedirectStartSol = String.fromCharCode(0x10, 0x00, 0x00, 0x00, 0x53, 0x4F, 0x4C, 0x20);
+    obj.RedirectStartKvm = String.fromCharCode(0x10, 0x01, 0x00, 0x00, 0x4b, 0x56, 0x4d, 0x52);
+    obj.RedirectStartIder = String.fromCharCode(0x10, 0x00, 0x00, 0x00, 0x49, 0x44, 0x45, 0x52);
+    obj.redirstate = REDIR_TYPE.REDIR_UNKNOWN;
+    obj.redir_sol_chan = 0;
+
     // AMT forwarded port list for non-TLS mode
     var pfwd_ports = [ 16992, 623, 16994, 5900];
     // protocol definitions
@@ -208,7 +224,7 @@ module.exports.CreateCiraClient = function (parent, args) {
             case APFProtocol.SERVICE_ACCEPT: {
                 var slen = obj.common.ReadInt(data,1);
                 var service = data.substring(5, 6 + slen);
-                console.log("CIRA: Service request to " +service+ " accepted.");
+                Debug("CIRA: Service request to " +service+ " accepted.");
                 if (service=='auth@amt.intel.com') {
                     if (obj.cirastate>=CIRASTATE.AUTH_SERVICE_REQUEST_SENT) {
                         SendUserAuthRequest(socket, obj.args.username, obj.args.password);
@@ -223,49 +239,208 @@ module.exports.CreateCiraClient = function (parent, args) {
             case APFProtocol.REQUEST_SUCCESS: {
                 if (len>=5) {
                     var port = obj.common.ReadInt(data,1);
-                    console.log("CIRA: Request to port forward "+port+" successful.");
+                    Debug("CIRA: Request to port forward "+port+" successful.");
                     // iterate to pending port forward request
                     if (obj.pfwd_idx<pfwd_ports.length) {
                         SendGlobalRequestPfwd(socket,obj.args.clientName,pfwd_ports[obj.pfwd_idx++]);
                     } else {
                         // no more port forward, now setup timer to send keep alive
-                        console.log("CIRA: Start keep alive for every "+obj.args.keepalive+" ms.");
+                        Debug("CIRA: Start keep alive for every "+obj.args.keepalive+" ms.");
                         obj.timer = setInterval( function () {
                             SendKeepAliveRequest(obj.forwardClient);
                         }, obj.args.keepalive);// 
                     }
                     return 5;
                 } 
-                console.log("CIRA: Request successful.");                
+                Debug("CIRA: Request successful.");                
                 return 1;
             }
             case APFProtocol.USERAUTH_SUCCESS: {
-                console.log("CIRA: User Authentication successful");
+                Debug("CIRA: User Authentication successful");
                 // Send Pfwd service request
                 SendServiceRequest(socket,'pfwd@amt.intel.com');
                 return 1;
             }
             case APFProtocol.USERAUTH_FAILURE: {
-                console.log("CIRA: User Authentication failed");
+                Debug("CIRA: User Authentication failed");
                 obj.cirastate = CIRASTATE.FAILED;
                 return 14;
             }
             case APFProtocol.KEEPALIVE_REQUEST: {
-                console.log("CIRA: Keep Alive Request with cookie: "+obj.common.ReadInt(data,1));
+                Debug("CIRA: Keep Alive Request with cookie: "+obj.common.ReadInt(data,1));
                 SendKeepAliveReply(socket,obj.common.ReadInt(data,1));
                 return 5;
             }
             case APFProtocol.KEEPALIVE_REPLY: {
-                console.log("CIRA: Keep Alive Reply with cookie: "+obj.common.ReadInt(data,1));
+                Debug("CIRA: Keep Alive Reply with cookie: "+obj.common.ReadInt(data,1));
                 return 5;
             }
+            // Channel management
+            case APFProtocol.CHANNEL_OPEN: {
+                //parse CHANNEL OPEN request
+                var p_res = parseChannelOpen(data);
+                Debug("CIRA: CHANNEL_OPEN request: "+ JSON.stringify(p_res));
+                if (p_res.connected_port==16994) {
+                    SendChannelOpenConfirm(socket, p_res);
+                } else {
+                    SendChannelOpenFailure(socket, p_res);
+                }
+                return p_res.len;
+            }
+            case APFProtocol.CHANNEL_OPEN_CONFIRMATION: {
+                Debug("CIRA: CHANNEL_OPEN_CONFIRMATION");
+                return 17;
+            }
+            case APFProtocol.CHANNEL_CLOSE: {
+                var rcpt_chan = obj.common.ReadInt(data,1); 
+                Debug("CIRA: CHANNEL_CLOSE: "+rcpt_chan);                
+                SendChannelClose(socket, rcpt_chan);
+                // check if this is redil_sol_chan
+                if (rcpt_chan == obj.redir_sol_chan) {
+                    Debug("CIRA: Reset SOL Redirection");
+                    obj.redir_sol_chan = 0;
+                    obj.redirstate = REDIR_TYPE.REDIR_UNKNOWN;
+                }
+                return 5;
+            }
+            case APFProtocol.CHANNEL_DATA: {
+                Debug("CIRA: CHANNEL_DATA: "+ JSON.stringify(obj.common.rstr2hex(data)));
+                var rcpt_chan = obj.common.ReadInt(data,1);
+                var chan_data_len = obj.common.ReadInt(data,5);
+                var chan_data = data.substring(9, 9 + chan_data_len);
+                processRedirData(socket, rcpt_chan, chan_data);
+                return 9 + chan_data_len;
+            }
             default: {
-                console.log("CMD: "+cmd+ " is not implemented.");
+                Debug("CMD: "+cmd+ " is not implemented.");
                 obj.cirastate = CIRASTATE.FAILED;
                 return 0;
             }
         }
-     }
+    }
+
+    function processRedirData(socket, rcpt_chan, data) {
+        // if unknown, we expect some protocol specification to be sent
+        if (obj.redirstate==REDIR_TYPE.REDIR_UNKNOWN) {
+            var redir_cmd = data.substring(0,8);
+            Debug("CIRA: SOL redir_cmd: "+redir_cmd);
+            if (redir_cmd == obj.RedirectStartSol) {
+                Debug("CIRA: SOL receive StartRedirectionSession");
+                obj.redirstate = REDIR_TYPE.REDIR_SOL;
+                obj.redir_sol_chan = rcpt_chan;
+                SendChannelWindowAdjust(socket, rcpt_chan, 0);
+                // send StartRedirectionSessionReply success
+                var reply = String.fromCharCode(0x11, 0x0, 0x00, 0x00, 0x01, 0x00, 0x0B, 0x08, 0x57, 0x01,0x00, 0x00, 0x00);
+                Debug("CIRA: SOL send StartRedirectionSessionReply: " + obj.common.rstr2hex(reply));
+                SendChannelData(socket, rcpt_chan, 13, reply);
+                SendChannelWindowAdjust(socket, rcpt_chan, 0);            
+            } else {
+                // other than SOL, it is not supported yet, will refine later
+                obj.cirastate = CIRASTATE.FAILED;
+            }
+        } else if (obj.redirstate== REDIR_TYPE.REDIR_SOL) {
+            // SOL state machine
+            Debug("CIRA: SOL: "+ obj.common.rstr2hex(data));
+            var sol_cmd = data.charCodeAt(0);
+            switch (sol_cmd) {
+                case 0x13: {
+                    if (data.length<=13)
+                    { // Authentication query reply hack to auth
+                        var reply = String.fromCharCode(0x14, 0x00, 0x00, 0x00, 0x02, 0x03, 0x00, 0x00, 0x00, 0x04, 0x03, 0x01);
+                        SendChannelData(socket, rcpt_chan, 12, reply);
+                    } else {
+                        // authentication 
+                        var reply = String.fromCharCode(0x14, 0x01, 0x00, 0x00, 0x02, 0x03, 0x00, 0x00, 0x00, 0x04, 0x03, 0x01);
+                        SendChannelData(socket, rcpt_chan, 12, reply);
+                    }
+                    break;
+                }
+                case 0x20: {
+                    var reply = String.fromCharCode(0x21, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x0B, 0x08, 0x00, 0x20, 0x01, 0x00, 0x00, 0x00, 0x57, 0x01, 0x00, 0x00, 0x00);
+                    SendChannelData(socket, rcpt_chan, 23, reply);
+                    break;
+                }
+                case 0x27: {
+                    // Response to setting ack, do nothing
+                    break;
+                }
+                case 0x2B: {
+                    // heartbeat, send back exact heartbeat data
+                    SendChannelData(socket, rcpt_chan, 8, data.substring(0,8));
+                    break;
+                }
+                case 0x28: {
+                    // Data to host, incoming data, just loopback with Data from host reply
+                    var dlen = obj.common.ReadShortX(data,8);
+                    Debug("CIRA: SOL data dlen="+dlen+", value="+data.substring(10,10+dlen));
+                    var reply = String.fromCharCode(0x2A,0x00,0x00,0x00)+data.substring(4,8)+obj.common.ShortToStrX(dlen)+data.substring(10,10+dlen);
+                    SendChannelData(socket, rcpt_chan, 10+dlen, reply);
+                    break;
+                }
+                default: {
+                    obj.cirastate = CIRASTATE.FAILED;
+                }
+            }            
+        } else {
+            obj.cirastate = CIRASTATE.FAILED;
+        }
+    }
+
+    function parseChannelOpen(data) {
+        var result = {
+            len: 0, //to be filled later
+            cmd: APFProtocol.CHANNEL_OPEN,
+            chan_type: "", //to be filled later
+            sender_chan: 0, //to be filled later
+            window_size: 0, //to be filled later
+            connected_address: "", //to be filled later
+            connected_port: 0, //to be filled later
+            origin_address: "", //to be filled later
+            origin_port: 0, //to be filled later            
+        };
+        var chan_type_slen = obj.common.ReadInt(data,1);
+        result.chan_type = data.substring(5,5+chan_type_slen);
+        result.sender_chan = obj.common.ReadInt(data, 5 + chan_type_slen);
+        result.window_size = obj.common.ReadInt(data, 9 + chan_type_slen);
+        var c_len = obj.common.ReadInt(data, 17 + chan_type_slen);
+        result.connected_address = data.substring(21 + chan_type_slen, 21 + chan_type_slen + c_len);
+        result.connected_port = obj.common.ReadInt(data, 21 + chan_type_slen + c_len);
+        var o_len = obj.common.ReadInt(data, 25 + chan_type_slen + c_len);
+        result.origin_address = data.substring(29 + chan_type_slen + c_len, 29 + chan_type_slen + c_len + o_len);
+        result.origin_port = obj.common.ReadInt(data, 29 + chan_type_slen + c_len + o_len );
+        result.len = 33 + chan_type_slen + c_len + o_len;
+        return result;
+    }
+    function SendChannelOpenFailure(socket, chan_data) { 
+        var data = String.fromCharCode(APFProtocol.CHANNEL_OPEN_FAILURE)+obj.common.IntToStr(chan_data.sender_chan)
+        + obj.common.IntToStr(2) + obj.common.IntToStr(0) + obj.common.IntToStr(0);
+        socket.write(Buffer.from(data,'binary'));
+        Debug("CIRA: Send ChannelOpenFailure");
+    }
+    function SendChannelOpenConfirm(socket, chan_data) {
+        var data = String.fromCharCode(APFProtocol.CHANNEL_OPEN_CONFIRMATION)+obj.common.IntToStr(chan_data.sender_chan)
+        + obj.common.IntToStr(chan_data.sender_chan) + obj.common.IntToStr(chan_data.window_size)+obj.common.IntToStr(0xFFFFFFFF);
+        socket.write(Buffer.from(data,'binary'));
+        Debug("CIRA: Send ChannelOpenConfirmation");
+    }
+
+    function SendChannelWindowAdjust(socket, chan, size) {
+        var data = String.fromCharCode(APFProtocol.CHANNEL_WINDOW_ADJUST)+obj.common.IntToStr(chan) + obj.common.IntToStr(size);
+        socket.write(Buffer.from(data,'binary'));
+        Debug("CIRA: Send ChannelWindowAdjust: "+ obj.common.rstr2hex(data));
+    }
+
+    function SendChannelData(socket, chan, len, data) {
+        var buf = String.fromCharCode(APFProtocol.CHANNEL_DATA)+obj.common.IntToStr(chan) + obj.common.IntToStr(len)+data;
+        socket.write(Buffer.from(buf,'binary'));
+        Debug("CIRA: Send ChannelData: "+ obj.common.rstr2hex(buf));
+    }
+
+    function SendChannelClose(socket, chan) {
+        var buf = String.fromCharCode(APFProtocol.CHANNEL_CLOSE)+obj.common.IntToStr(chan);
+        socket.write(Buffer.from(buf,'binary'));
+        Debug("CIRA: Send ChannelClose: "+ obj.common.rstr2hex(buf));
+    }
 
     obj.connect = function () {
         if (obj.forwardClient!=null) {
