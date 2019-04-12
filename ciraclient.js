@@ -345,11 +345,11 @@ module.exports.CreateCiraClient = function (parent, args) {
             switch (sol_cmd) {
                 case 0x13: {
                     if (data.length<=13)
-                    { // Authentication query reply hack to auth
+                    { // Authentication query reply capabilities
                         var reply = String.fromCharCode(0x14, 0x00, 0x00, 0x00, 0x02, 0x03, 0x00, 0x00, 0x00, 0x04, 0x03, 0x01);
                         SendChannelData(socket, rcpt_chan, 12, reply);
                     } else {
-                        // authentication 
+                        // authentication bypass, don't care what was sent, just say YES you are authorized
                         var reply = String.fromCharCode(0x14, 0x01, 0x00, 0x00, 0x02, 0x03, 0x00, 0x00, 0x00, 0x04, 0x03, 0x01);
                         SendChannelData(socket, rcpt_chan, 12, reply);
                     }
