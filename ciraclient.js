@@ -311,6 +311,10 @@ module.exports.CreateCiraClient = function (parent, args) {
                 processRedirData(socket, rcpt_chan, chan_data);
                 return 9 + chan_data_len;
             }
+            case APFProtocol.CHANNEL_WINDOW_ADJUST: {
+                Debug("CIRA: CHANNEL_WINDOW_ADJUST ");
+                return 9;
+            }
             default: {
                 Debug("CMD: "+cmd+ " is not implemented.");
                 obj.cirastate = CIRASTATE.FAILED;

@@ -24,6 +24,8 @@ var deldev_tpl = {
 var sol_tmr = {};
 
 var message_loop = "Can't touch this....";//CHANGE THIS to simulate the size of text to shuffle
+var hammer_period = 500; // half second
+//message_loop = require('fs').readFileSync('LICENSE');//use license file instead
 
 var request = require('request');
 var constants = require('constants');
@@ -127,7 +129,7 @@ function termHammer(cfg, cookie, nodeid) {
                     var x = message_loop;
                     console.log("Data sent: "+ x);
                     ws.send(String.fromCharCode(0x28, 0x00, 0x00, 0x00) + common.IntToStrX(ws.amtseq++) + common.ShortToStrX(x.length) + x);
-                },500);//CHANGE THIS, rate limit the frequency fo sending packet
+                },hammer_period);//CHANGE THIS, rate limit the frequency fo sending packet
                 sol_tmr[nodeid] = tmr;
                 break;
             }

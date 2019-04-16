@@ -1,0 +1,9 @@
+{
+    "name": "cira-client-simulator",
+    "version": "0.0.1",
+    "description": "Simulating AMT CIRA connection",
+    "dependencies": {
+        "request": "^2.88.0",
+        "ws": "^6.2.1"
+    }
+}

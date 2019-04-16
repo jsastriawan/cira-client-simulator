@@ -1,2 +1,4 @@
 priv-simulator.js
 priv-autoresponder.js
+package-lock.json
+node_modules/*
