@@ -2,18 +2,19 @@ var obj = {
     debug: false,
     ciraclients: []
 };
+var mesh_id = "6JaMchA1YIwCZGrA";//modified 16 chars mesh prefix (replace $ or @ with X)
 
 var args_template = {
-    host: "your_mps_server_fqdn",// CHANGE THIS
+    host: "localhost",// CHANGE THIS
     port: 4433,// CHANGE THIS
     clientName: 'CIRA-Simulator',
     uuid: "12345678-9abc-def1-2345-123456789000",//GUID template, last few chars of the string will be replaced
-    username: 'your_mps_username', // CHANGE THIS
-    password: 'your_mps_password', // CHANGE THIS
+    username: mesh_id, // CHANGE THIS
+    password: 'P@ssw0rd', // CHANGE THIS
     keepalive: 60000 // interval for keepalive ping
 };
 
-var count = 25;//CHANGE THIS to scale the number of CIRA connection per instance of mass-simulator
+var count = 50;//CHANGE THIS to scale the number of CIRA connections per instance of mass-simulator
 var tail_len = count.toString(16).length;
 
 for (var i=0; i<count; i++) {

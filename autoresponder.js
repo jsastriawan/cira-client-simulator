@@ -1,10 +1,12 @@
 var common = require('./common.js');
 
+var mesh_id_raw = "6JaMchA1YIwCZGrA";//16 characters unmodified prefix of mesh_id
+
 var config = {
-    baseurl: "https://your-meshcentral-fqdn/",// CHANGE THIS
-    meshprefix: "mesh_cira_username",// CHANGE THIS
-    username: "your_username",// CHANGE THIS, your meshcentral username
-    password: "your_password" // CHANGE THIS, your meshcentral password
+    baseurl: "https://localhost/",// CHANGE THIS
+    meshprefix: mesh_id_raw,// CHANGE THIS
+    username: "admin",// CHANGE THIS, your meshcentral username
+    password: "P@ssw0rd" // CHANGE THIS, your meshcentral password
 }
 
 var chgdev_tpl = {
@@ -60,7 +62,7 @@ function getCookie(cfg, cb) {
 
     var req = https.request(options, function(res) {
         var cookie = null;
-        if (res.statusCode == 302) {
+        if (res.statusCode == 302 || res.statusCode == 200) {
             cookie = res.headers['set-cookie'];
         }
         if (cb) cb(cookie);
@@ -127,14 +129,14 @@ function termHammer(cfg, cookie, nodeid) {
                 ws.send(String.fromCharCode(0x27,0x00,0x00,0x00)+ common.IntToStrX(ws.amtseq++) + String.fromCharCode(0x00, 0x00, 0x1B, 0x00, 0x00, 0x00));
                 var tmr = setInterval( function(){
                     var x = message_loop;
-                    console.log("Data sent: "+ x);
+                    console.log("Data sent to "+ nodeid);
                     ws.send(String.fromCharCode(0x28, 0x00, 0x00, 0x00) + common.IntToStrX(ws.amtseq++) + common.ShortToStrX(x.length) + x);
                 },hammer_period);//CHANGE THIS, rate limit the frequency fo sending packet
                 sol_tmr[nodeid] = tmr;
                 break;
             }
             case 0x2A: {
-                console.log("Data received: "+ data.substring(10));
+                console.log("Data received from "+ nodeid);
                 break;
             }
             default: {
